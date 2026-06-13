@@ -1,0 +1,51 @@
+{
+  "name": "injest",
+  "version": "0.1.0",
+  "description": "A test runner for code running inside Frida's GumJS runtime.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "injest": "dist/host/cli.js"
+  },
+  "main": "dist/host/index.js",
+  "types": "dist/host/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/host/index.d.ts",
+      "import": "./dist/host/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/runtime.d.ts",
+      "import": "./dist/agent/runtime.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schema",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/host/cli.js",
+    "typecheck:agent": "tsc -p tsconfig.agent.json",
+    "test": "tsx --test \"test/**/*.spec.ts\"",
+    "test:watch": "tsx --test --watch \"test/**/*.spec.ts\"",
+    "injest": "node dist/host/cli.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "deep-eql": "^5.0.2",
+    "frida": "^17.10.1",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/deep-eql": "^4.0.2",
+    "@types/frida-gum": "^19.4.0",
+    "@types/node": "^25.9.1",
+    "prettier": "^3.8.3",
+    "tsx": "^4.20.6"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

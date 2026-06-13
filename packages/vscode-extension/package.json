@@ -1,0 +1,101 @@
+{
+  "name": "injest-vscode",
+  "displayName": "injest",
+  "description": "Run injest (GumJS) suites from VS Code's Test Explorer.",
+  "version": "0.0.1",
+  "publisher": "injest",
+  "type": "module",
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": [
+    "frida",
+    "gumjs",
+    "testing",
+    "test explorer",
+    "injest"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frida/injest.git",
+    "directory": "packages/vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/frida/injest/issues"
+  },
+  "homepage": "https://github.com/frida/injest/tree/main/packages/vscode-extension#readme",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "categories": [
+    "Testing"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/injest.config.json"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "injest.refresh",
+        "title": "injest: Refresh Tests",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "injest.showOutput",
+        "title": "injest: Show Output",
+        "icon": "$(output)"
+      },
+      {
+        "command": "injest.openConfig",
+        "title": "injest: Open Config",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "injest.selectTarget",
+        "title": "injest: Select Target",
+        "icon": "$(device-mobile)"
+      }
+    ],
+    "configuration": {
+      "title": "injest",
+      "properties": {
+        "injest.command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "npx",
+            "injest"
+          ],
+          "scope": "resource",
+          "description": "Command (argv form) used to invoke the injest CLI."
+        },
+        "injest.target": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Target profile passed as --target. Empty uses the config's default."
+        },
+        "injest.configPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Config file passed as --config. Empty uses ./injest.config.json."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json -w",
+    "test": "tsx --test \"test/**/*.spec.ts\"",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.120.0",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.3"
+  }
+}

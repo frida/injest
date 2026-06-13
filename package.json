@@ -1,0 +1,16 @@
+{
+  "name": "injest-monorepo",
+  "version": "0.0.0",
+  "description": "Monorepo for the injest runner and its VS Code extension.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  }
+}

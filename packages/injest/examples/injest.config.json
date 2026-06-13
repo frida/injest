@@ -1,0 +1,6 @@
+{
+  "default": "local",
+  "targets": {
+    "local": { "device": "local", "session": "system" }
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/frida/injest/main/packages/injest/schema/injest.config.schema.json",
+  "title": "injest configuration",
+  "description": "Configuration for the injest runner (injest.config.json).",
+  "type": "object",
+  "required": ["targets"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL to this schema, for editor autocomplete and validation."
+    },
+    "default": {
+      "type": "string",
+      "description": "Target used when --target is omitted. Must be a key in \"targets\"."
+    },
+    "targets": {
+      "type": "object",
+      "description": "Named target profiles (device + session + optional runtime/timeout).",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/target" }
+    },
+    "include": {
+      "type": "array",
+      "description": "Globs for test files, relative to the project root (default: [\"tests/**/*.test.{ts,js}\"]).",
+      "items": { "type": "string" }
+    },
+    "exclude": {
+      "type": "array",
+      "description": "Globs subtracted from the included files.",
+      "items": { "type": "string" }
+    }
+  },
+  "definitions": {
+    "target": {
+      "type": "object",
+      "required": ["device", "session"],
+      "additionalProperties": false,
+      "properties": {
+        "device": { "$ref": "#/definitions/device" },
+        "session": { "$ref": "#/definitions/session" },
+        "runtime": {
+          "description": "GumJS runtime (default: qjs).",
+          "enum": ["qjs", "v8"]
+        },
+        "timeout": {
+          "description": "Default per-test timeout in milliseconds (default: 10000).",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "device": {
+      "description": "\"local\", \"usb\" (first USB device), or { \"id\": \"<udid>\" } (a specific device).",
+      "oneOf": [
+        { "type": "string", "enum": ["local", "usb"] },
+        {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "description": "Device id (udid)." }
+          }
+        }
+      ]
+    },
+    "session": {
+      "description": "\"system\", or { \"spawn\": \"<program-or-bundle-id>\", \"args\": [...] }.",
+      "oneOf": [
+        { "type": "string", "const": "system" },
+        {
+          "type": "object",
+          "required": ["spawn"],
+          "additionalProperties": false,
+          "properties": {
+            "spawn": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Program path or bundle id to spawn (started suspended)."
+            },
+            "args": {
+              "type": "array",
+              "description": "Extra argv passed to the spawned program.",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

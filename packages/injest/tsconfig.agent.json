@@ -1,0 +1,14 @@
+{
+  "comment": "Editor/typecheck config for agent code. frida-compile does the actual build.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["frida-gum"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/agent"]
+}
