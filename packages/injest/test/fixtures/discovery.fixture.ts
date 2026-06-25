@@ -1,6 +1,6 @@
 // Fixture parsed by source.spec.ts via discoverTestInfo(). Line numbers are
 // asserted there, so keep additions at the bottom and don't reflow this file.
-import { test, describe } from "injest/agent";
+import { test, describe } from "@frida/injest/agent";
 
 test("alpha", () => {});
 test.skip("beta", () => {});

@@ -45,7 +45,7 @@ jobs:
         run: npm run build --workspaces --if-present
 
       - name: Typecheck agent
-        run: npm run typecheck:agent -w injest
+        run: npm run typecheck:agent -w @frida/injest
 
       - name: Test
         run: npm test --workspaces --if-present

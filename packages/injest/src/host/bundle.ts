@@ -100,7 +100,7 @@ function entrySource(testFiles: string[], entryDir: string): string {
   });
   return [
     '/// <reference types="frida-gum" />',
-    'import { run } from "injest/agent";',
+    'import { run } from "@frida/injest/agent";',
     ...imports,
     "rpc.exports = { run };",
     "",

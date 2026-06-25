@@ -1,5 +1,5 @@
 /// <reference types="frida-gum" />
-import { test, expect, describe, beforeEach, afterEach } from "injest/agent";
+import { test, expect, describe, beforeEach, afterEach } from "@frida/injest/agent";
 
 const hookLog: string[] = [];
 

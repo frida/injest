@@ -1,5 +1,5 @@
 /// <reference types="frida-gum" />
-import { test } from "injest/agent";
+import { test } from "@frida/injest/agent";
 
 test(
   "hangs until its short per-test timeout fires",

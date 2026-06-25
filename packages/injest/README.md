@@ -11,7 +11,7 @@ In the project under test, add `injest` and a config:
 
 ```jsonc
 // package.json
-{ "type": "module", "devDependencies": { "injest": "^0.1.0" } }
+{ "type": "module", "devDependencies": { "@frida/injest": "^0.1.0" } }
 ```
 
 ```jsonc
@@ -21,7 +21,7 @@ In the project under test, add `injest` and a config:
 
 ```ts
 // tests/example.test.ts
-import { test, expect } from "injest/agent";
+import { test, expect } from "@frida/injest/agent";
 
 test("platform must be linux", () => {
   expect(Process.platform).toBe("linux");
@@ -133,7 +133,7 @@ injest [file-filters...] [options]
   -h, --help                  show help
 ```
 
-## Test API (`injest/agent`)
+## Test API (`@frida/injest/agent`)
 
 - `test(name, fn, opts?)` — register a test; may be `async`. `opts.launch` is
   `"shared"` (default) | `"isolated"` | `"suspended"`; `opts.timeout` (ms) overrides the

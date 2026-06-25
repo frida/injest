@@ -1,5 +1,5 @@
 /// <reference types="frida-gum" />
-import { test, expect, describe } from "injest/agent";
+import { test, expect, describe } from "@frida/injest/agent";
 
 test("passes", () => {
   expect(1 + 1).toBe(2);
