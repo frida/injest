@@ -1,6 +1,6 @@
 {
   "name": "@frida/injest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A test runner for code running inside Frida's GumJS runtime.",
   "license": "MIT",
   "author": "Håvard Sørbø <havard@hsorbo.no>",
