@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
 import * as frida from "frida";
@@ -16,19 +16,23 @@ export function discoverTests(opts: DiscoverOptions): string[] {
   const included = opts.include.map(globToRegExp);
   const excluded = (opts.exclude ?? []).map(globToRegExp);
 
+  const isExcluded = (relativePath: string): boolean =>
+    excluded.some((re) => re.test(relativePath));
+  const isExcludedDir = (relativePath: string): boolean =>
+    isExcluded(relativePath) || isExcluded(relativePath + "/");
+
   const matched: string[] = [];
   const walkDir = (dir: string): void => {
     for (const name of readdirSync(dir)) {
       if (name === "node_modules" || name.startsWith(".")) continue;
       const fullPath = join(dir, name);
-      if (statSync(fullPath).isDirectory()) {
-        walkDir(fullPath);
+      const relativePath = relative(root, fullPath).split(sep).join("/");
+      // lstatSync, not statSync: don't follow symlinks (dangling links throw, cycles recurse).
+      if (lstatSync(fullPath).isDirectory()) {
+        if (!isExcludedDir(relativePath)) walkDir(fullPath);
         continue;
       }
-      const relativePath = relative(root, fullPath).split(sep).join("/");
-      const isTestFile =
-        included.some((re) => re.test(relativePath)) &&
-        !excluded.some((re) => re.test(relativePath));
+      const isTestFile = included.some((re) => re.test(relativePath)) && !isExcluded(relativePath);
       if (isTestFile) matched.push(fullPath);
     }
   };

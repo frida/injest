@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { after, before, test } from "node:test";
@@ -72,4 +72,35 @@ test("node_modules and dot directories are always pruned", () => {
     found(["**/*.test.ts"]).filter((p) => p.includes(".hidden")),
     [],
   );
+});
+
+test("a dangling symlink does not crash discovery", () => {
+  const dir = mkdtempSync(join(tmpdir(), "injest-symlink-"));
+  try {
+    mkdirSync(join(dir, "tests"), { recursive: true });
+    writeFileSync(join(dir, "tests/a.test.ts"), "");
+    mkdirSync(join(dir, "resources"), { recursive: true });
+    symlinkSync(join(dir, "resources/missing-target"), join(dir, "resources/dangling-link"));
+    const result = discoverTests({ include: DEFAULT_INCLUDE, cwd: dir }).map((p) =>
+      relative(dir, p).split(sep).join("/"),
+    );
+    assert.deepEqual(result, ["tests/a.test.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a bare directory name in exclude prunes the directory, not just files named it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "injest-prune-"));
+  try {
+    writeFileSync(join(dir, "keep.test.ts"), "");
+    mkdirSync(join(dir, "excluded-dir"), { recursive: true });
+    writeFileSync(join(dir, "excluded-dir/nested.test.ts"), "");
+    const result = discoverTests({ include: ["**/*.test.ts"], exclude: ["excluded-dir"], cwd: dir })
+      .map((p) => relative(dir, p).split(sep).join("/"))
+      .sort();
+    assert.deepEqual(result, ["keep.test.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
