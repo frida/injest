@@ -73,7 +73,7 @@ Options:
   -h, --help               show this help
 
 In code:
-  test(name, fn, { timeout })   test.skip(name, fn)   describe(label, fn)
+  test(name, fn, { timeout })   test.skip(name, fn)   describe(label, ({ skip }) => …)
   beforeEach(fn) / afterEach(fn)     run around each test in the enclosing describe
   test.isolated(name, fn)            own fresh process, killed after (spawn targets)
   test.suspended(name, async ({ resume }) => …)   spawn suspended; resume() releases it

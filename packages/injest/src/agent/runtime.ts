@@ -16,6 +16,12 @@ export interface SuspendedContext extends TestContext {
 
 export type SuspendedFn = (ctx: SuspendedContext) => void | Promise<void>;
 
+export interface SuiteContext {
+  skip: (reason?: string) => void;
+}
+
+export type SuiteFn = (ctx: SuiteContext) => void;
+
 class SkipSignal {
   constructor(readonly reason?: string) {}
 }
@@ -39,6 +45,8 @@ interface Suite {
   parent: Suite | null;
   beforeEach: Thunk[];
   afterEach: Thunk[];
+  skipped: boolean;
+  skipReason?: string;
 }
 
 interface TestCase {
@@ -65,7 +73,7 @@ export interface RunOptions {
 
 const registry: TestCase[] = [];
 const suiteStack: string[] = [];
-const rootSuite: Suite = { parent: null, beforeEach: [], afterEach: [] };
+const rootSuite: Suite = { parent: null, beforeEach: [], afterEach: [], skipped: false };
 let currentSuite = rootSuite;
 
 function add(name: string, fn: Thunk, mode: Mode, opts?: TestOptions): void {
@@ -80,12 +88,19 @@ function add(name: string, fn: Thunk, mode: Mode, opts?: TestOptions): void {
   });
 }
 
-export function describe(label: string, fn: () => void): void {
+export function describe(label: string, fn: SuiteFn): void {
   suiteStack.push(label);
   const parent = currentSuite;
-  currentSuite = { parent, beforeEach: [], afterEach: [] };
+  const suite: Suite = { parent, beforeEach: [], afterEach: [], skipped: false };
+  currentSuite = suite;
+  const ctx: SuiteContext = {
+    skip: (reason) => {
+      suite.skipped = true;
+      suite.skipReason = reason;
+    },
+  };
   try {
-    fn();
+    fn(ctx);
   } finally {
     currentSuite = parent;
     suiteStack.pop();
@@ -98,6 +113,15 @@ export function beforeEach(fn: Thunk): void {
 
 export function afterEach(fn: Thunk): void {
   currentSuite.afterEach.push(fn);
+}
+
+// a test is skipped if its suite, or any ancestor, was skipped via the describe ctx;
+// the nearest such reason wins
+function skipFor(suite: Suite): { skipped: boolean; reason?: string } {
+  for (let s: Suite | null = suite; s; s = s.parent) {
+    if (s.skipped) return { skipped: true, reason: s.skipReason };
+  }
+  return { skipped: false };
 }
 
 function hooksFor(suite: Suite): { runBefore: Thunk[]; runAfter: Thunk[] } {
@@ -152,7 +176,8 @@ export async function run(options: RunOptions = {}): Promise<void> {
   for (let i = 0; i < selected.length; i++) {
     const { test: t, testIndex } = selected[i];
     send({ ft: "start", index: i, testIndex, name: t.name, timeout: t.timeout });
-    if (t.mode === "skip") {
+    const suiteSkip = skipFor(t.suite);
+    if (t.mode === "skip" || suiteSkip.skipped) {
       send({
         ft: "result",
         index: i,
@@ -161,6 +186,7 @@ export async function run(options: RunOptions = {}): Promise<void> {
         passed: true,
         skipped: true,
         durationMs: 0,
+        error: suiteSkip.reason ? { name: "Skipped", message: suiteSkip.reason } : undefined,
       });
       continue;
     }

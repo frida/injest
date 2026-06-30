@@ -58,6 +58,17 @@ test("maps ctx.skip() and test.skip to skipped", async (t) => {
   assert.equal(r.get("static skip")?.status, "skipped");
 });
 
+test("describe ctx.skip() skips the whole group, with the reason, without running bodies", async (t) => {
+  if (!available) return t.skip("no local Frida device");
+
+  const skipped = byName(await runFixture([suite])).get(
+    "Conditionally skipped › would fail if it ran",
+  );
+  // the body would throw on a failing expect if it ran; the group skip must short-circuit it.
+  assert.equal(skipped?.status, "skipped");
+  assert.equal(skipped?.error?.message, "not on this target");
+});
+
 test("a hanging test hits the per-test timeout", async (t) => {
   if (!available) return t.skip("no local Frida device");
 

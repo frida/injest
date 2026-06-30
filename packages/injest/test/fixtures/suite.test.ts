@@ -36,3 +36,10 @@ describe("Group", () => {
     expect("a").toBe("a");
   });
 });
+
+describe("Conditionally skipped", ({ skip }) => {
+  skip("not on this target");
+  test("would fail if it ran", () => {
+    expect(1).toBe(2);
+  });
+});
