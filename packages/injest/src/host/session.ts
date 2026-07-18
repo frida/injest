@@ -1,8 +1,16 @@
+import { isAbsolute, resolve } from "node:path";
+
 import * as frida from "frida";
 
 import type { Runtime, TargetConfig } from "./config.js";
 
 const SYSTEM_SESSION_PID = 0;
+
+export function resolveLocalSpawn(program: string, root: string): string {
+  if (isAbsolute(program)) return program;
+  if (!/[\\/]/.test(program)) return program;
+  return resolve(root, program);
+}
 
 export async function getDevice(target: TargetConfig): Promise<frida.Device> {
   const { device } = target;
@@ -32,8 +40,10 @@ export async function openSession(
   }
   if ("spawn" in session) {
     // spawn gating: the process starts suspended so the agent can hook before any of its code runs
-    const argv = session.args ? [session.spawn, ...session.args] : undefined;
-    const pid = await device.spawn(session.spawn, argv ? { argv } : undefined);
+    const program =
+      target.device === "local" ? resolveLocalSpawn(session.spawn, process.cwd()) : session.spawn;
+    const argv = session.args ? [program, ...session.args] : undefined;
+    const pid = await device.spawn(program, argv ? { argv } : undefined);
     const s = await device.attach(pid);
     let resumed = false;
     return {

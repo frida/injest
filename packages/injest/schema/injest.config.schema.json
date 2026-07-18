@@ -77,7 +77,7 @@
             "spawn": {
               "type": "string",
               "minLength": 1,
-              "description": "Program path or bundle id to spawn (started suspended)."
+              "description": "Program path or bundle id to spawn (started suspended). On the local device a path-like value (contains a separator, e.g. \"./build/test\") is resolved against the project root; bundle ids and PATH program names are used as-is."
             },
             "args": {
               "type": "array",
