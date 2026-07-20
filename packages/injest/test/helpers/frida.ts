@@ -7,15 +7,6 @@ import { captureStdout } from "./capture.js";
 
 const TARGET: TargetConfig = { device: "local", session: "system" };
 
-export async function localDeviceAvailable(): Promise<boolean> {
-  try {
-    await getDevice(TARGET);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function runFixture(
   files: string[],
   opts: { timeoutMs?: number; runtime?: Runtime } = {},
