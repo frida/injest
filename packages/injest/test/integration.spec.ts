@@ -14,6 +14,7 @@ const hookFailuresFixture = fileURLToPath(
 const perTestTimeoutFixture = fileURLToPath(
   new URL("./fixtures/per-test-timeout.test.ts", import.meta.url),
 );
+const gumValuesFixture = fileURLToPath(new URL("./fixtures/gum-values.test.ts", import.meta.url));
 
 let available = false;
 before(async () => {
@@ -47,6 +48,22 @@ test("maps a failing expect to a failed result with a real diff", async (t) => {
   assert.equal(fail?.error?.name, "AssertionError");
   assert.equal(fail?.error?.expected, "2");
   assert.equal(fail?.error?.actual, "1");
+});
+
+test("compares GumJS scalar values under QJS and V8", async (t) => {
+  if (!available) return t.skip("no local Frida device");
+
+  for (const runtime of ["qjs", "v8"] as const) {
+    const results = await runFixture([gumValuesFixture], { runtime });
+    assert.equal(results.length, 6);
+    for (const result of results) {
+      assert.equal(
+        result.status,
+        "passed",
+        `${runtime}/${result.name}: ${result.error?.message ?? result.status}`,
+      );
+    }
+  }
 });
 
 test("maps ctx.skip() and test.skip to skipped", async (t) => {

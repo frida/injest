@@ -93,11 +93,15 @@ function makeMatchers(actual: unknown, negated: boolean): Matchers {
       check(actual === expected, `to be ${fmt(expected)}`, { expected, actual, operator: "toBe" });
     },
     toEqual(expected) {
-      check(deepEqual(actual, expected), `to equal ${fmt(expected)}`, {
-        expected,
-        actual,
-        operator: "toEqual",
-      });
+      check(
+        deepEqual(actual, expected, { comparator: compareGumValues }),
+        `to equal ${fmt(expected)}`,
+        {
+          expected,
+          actual,
+          operator: "toEqual",
+        },
+      );
     },
     toBeTruthy() {
       check(!!actual, "to be truthy");
@@ -182,6 +186,34 @@ function makeMatchers(actual: unknown, negated: boolean): Matchers {
       return makeAsync(actual, false, negated);
     },
   };
+}
+
+type GumValueKind = "int64" | "uint64" | "pointer";
+
+function gumValueKind(value: unknown): GumValueKind | null {
+  if (value === null || typeof value !== "object") return null;
+  if (typeof Int64 !== "undefined" && value instanceof Int64) return "int64";
+  if (typeof UInt64 !== "undefined" && value instanceof UInt64) return "uint64";
+  if (typeof NativePointer !== "undefined" && value instanceof NativePointer) return "pointer";
+  return null;
+}
+
+function compareGumValues(left: unknown, right: unknown): boolean | null {
+  const leftKind = gumValueKind(left);
+  const rightKind = gumValueKind(right);
+  if (leftKind === null && rightKind === null) return null;
+  if (leftKind !== rightKind) return false;
+
+  switch (leftKind) {
+    case "int64":
+      return (left as Int64).equals(right as Int64);
+    case "uint64":
+      return (left as UInt64).equals(right as UInt64);
+    case "pointer":
+      return (left as NativePointer).equals(right as NativePointer);
+    default:
+      return false;
+  }
 }
 
 function makeAsync(subject: unknown, expectRejection: boolean, negated: boolean): AsyncMatchers {

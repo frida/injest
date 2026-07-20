@@ -2,7 +2,7 @@ import { compileTests } from "../../src/host/bundle.js";
 import { runSuite, toProjectRelative, type TestResult } from "../../src/host/run.js";
 import { getDevice, openSession, runtimeOption } from "../../src/host/session.js";
 import { discoverTestInfo } from "../../src/host/source.js";
-import type { TargetConfig } from "../../src/host/config.js";
+import type { Runtime, TargetConfig } from "../../src/host/config.js";
 import { captureStdout } from "./capture.js";
 
 const TARGET: TargetConfig = { device: "local", session: "system" };
@@ -18,7 +18,7 @@ export async function localDeviceAvailable(): Promise<boolean> {
 
 export async function runFixture(
   files: string[],
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; runtime?: Runtime } = {},
 ): Promise<TestResult[]> {
   const tests = discoverTestInfo(files);
   const source = await compileTests(files);
@@ -27,7 +27,9 @@ export async function runFixture(
 
   let results: TestResult[] = [];
   try {
-    const script = await opened.session.createScript(source, { runtime: runtimeOption() });
+    const script = await opened.session.createScript(source, {
+      runtime: runtimeOption(opts.runtime),
+    });
     await script.load();
 
     const metaByIndex = new Map(
