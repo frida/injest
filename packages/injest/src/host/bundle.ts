@@ -1,5 +1,5 @@
-import { lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, parse, relative, resolve, sep } from "node:path";
 
 import * as frida from "frida";
 
@@ -72,11 +72,20 @@ function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export async function compileTests(testFiles: string[]): Promise<string> {
-  const buildDir = resolve(`.injest-${process.pid}-${Date.now()}`);
+export interface CompileOptions {
+  cwd?: string;
+}
+
+export async function compileTests(
+  testFiles: string[],
+  opts: CompileOptions = {},
+): Promise<string> {
+  const projectRoot = resolve(opts.cwd ?? process.cwd());
+  const buildDir = join(projectRoot, `.injest-${process.pid}-${Date.now()}`);
   mkdirSync(buildDir, { recursive: true });
   const entry = join(buildDir, "entry.ts");
   writeFileSync(entry, entrySource(testFiles, buildDir));
+  writeFileSync(join(buildDir, "tsconfig.json"), tsconfigSource(projectRoot));
 
   const compiler = new frida.Compiler();
   compiler.diagnostics.connect((diagnostics) => {
@@ -88,12 +97,24 @@ export async function compileTests(testFiles: string[]): Promise<string> {
 
   try {
     return await compiler.build(entry, {
-      projectRoot: process.cwd(),
+      projectRoot: buildDir,
       sourceMaps: frida.SourceMaps.Included,
     });
   } finally {
     rmSync(buildDir, { recursive: true, force: true });
   }
+}
+
+// The compiler applies <projectRoot>/tsconfig.json as written, so the build dir carries its own:
+// the project's settings minus two a library build tends to set that break here. rootDir would
+// have to contain the entry file and every test (TypeScript 7 no longer infers it), and sourceMap
+// collides with the inline map requested above.
+function tsconfigSource(projectRoot: string): string {
+  const projectConfig = join(projectRoot, "tsconfig.json");
+  return JSON.stringify({
+    ...(existsSync(projectConfig) ? { extends: projectConfig } : {}),
+    compilerOptions: { rootDir: parse(projectRoot).root, sourceMap: false },
+  });
 }
 
 function entrySource(testFiles: string[], entryDir: string): string {

@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { dirname, join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { DEFAULT_INCLUDE, discoverTests } from "../src/host/bundle.js";
+import { compileTests, DEFAULT_INCLUDE, discoverTests } from "../src/host/bundle.js";
 
 let root: string;
 
@@ -103,4 +104,11 @@ test("a bare directory name in exclude prunes the directory, not just files name
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("compiles tests of a project whose tsconfig sets rootDir and sourceMap for its own build", async () => {
+  const project = fileURLToPath(new URL("./fixtures/library-project/", import.meta.url));
+  const source = await compileTests([join(project, "tests/library.test.ts")], { cwd: project });
+  assert.match(source, /compiles under a library tsconfig/);
+  assert.match(source, /^\d+ \/entry\.js\.map$/m);
 });
