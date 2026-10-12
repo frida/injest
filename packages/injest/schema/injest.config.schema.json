@@ -30,6 +30,11 @@
       "type": "array",
       "description": "Globs subtracted from the included files.",
       "items": { "type": "string" }
+    },
+    "bench": {
+      "type": "array",
+      "description": "Globs for bench files, run by --bench in place of the test files (default: [\"bench/**/*.bench.{ts,js}\"]).",
+      "items": { "type": "string" }
     }
   },
   "definitions": {

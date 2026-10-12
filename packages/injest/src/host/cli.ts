@@ -1,9 +1,18 @@
 #!/usr/bin/env node
+import { hostname } from "node:os";
 import { parseArgs } from "node:util";
 
 import type { Device } from "frida";
 
-import { compileTests, discoverTests, DEFAULT_INCLUDE } from "./bundle.js";
+import {
+  baselineKey,
+  loadBaseline,
+  saveBaseline,
+  updateBaseline,
+  type BaselineFile,
+  type Environment,
+} from "./baseline.js";
+import { compileTests, discoverTests, DEFAULT_BENCH_INCLUDE, DEFAULT_INCLUDE } from "./bundle.js";
 import {
   loadConfig,
   resolveTarget,
@@ -31,6 +40,7 @@ import {
 import { discoverTestInfo, matchTestName, type TestInfo } from "./source.js";
 
 const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_TIME_FACTOR = 3;
 
 const EXIT_TEST_FAILURE = 1;
 const EXIT_HARNESS_FAILURE = 2;
@@ -39,7 +49,7 @@ function metaByIndex(tests: TestInfo[]): Map<number, TestMeta> {
   return new Map(
     tests.map((t) => [
       t.index,
-      { id: t.id, name: t.name, file: toProjectRelative(t.file), line: t.line },
+      { id: t.id, name: t.name, file: toProjectRelative(t.file), line: t.line, kind: t.kind },
     ]),
   );
 }
@@ -53,9 +63,13 @@ function tryLoadConfig(path: string | undefined, required: boolean): Config | un
   }
 }
 
-function discoveryGlobs(config: Config | undefined): { include: string[]; exclude: string[] } {
+function discoveryGlobs(
+  config: Config | undefined,
+  bench: boolean,
+): { include: string[]; exclude: string[] } {
+  const configured = bench ? config?.bench : config?.include;
   return {
-    include: config?.include?.length ? config.include : DEFAULT_INCLUDE,
+    include: configured?.length ? configured : bench ? DEFAULT_BENCH_INCLUDE : DEFAULT_INCLUDE,
     exclude: config?.exclude ?? [],
   };
 }
@@ -76,6 +90,10 @@ Options:
   --only <id>              run only the test(s) with this stable id (repeatable)
   --reporter <pretty|json> output format; json emits NDJSON on stdout (default: pretty)
   --list                   list discovered tests (id, location) without running
+  --bench                  run the bench files ("bench" globs, default bench/**/*.bench.{ts,js})
+  --baseline <path>        compare each bench with this file; a counter above it fails the bench
+  --update                 with --baseline: write this platform's entry from the run
+  --time-factor <n>        also fail when min time exceeds n× the baseline's, on the same machine (default 3)
   -h, --help               show this help
 
 In code:
@@ -83,6 +101,8 @@ In code:
   beforeEach(fn) / afterEach(fn)     run around each test in the enclosing describe
   test.isolated(name, fn)            own fresh process, killed after (spawn targets)
   test.suspended(name, async ({ resume }) => …)   spawn suspended; resume() releases it
+  bench(name, ({ measure }) => measure(body), { warmup, iterations })   sample body's time
+  counter(name, object, method) / counter(name, nativePointer)   count calls per iteration
 
 Examples:
   injest --target local                  run all tests on the local system session
@@ -109,6 +129,10 @@ async function main(): Promise<void> {
       only: { type: "string", multiple: true },
       reporter: { type: "string" },
       list: { type: "boolean" },
+      bench: { type: "boolean" },
+      baseline: { type: "string" },
+      update: { type: "boolean" },
+      "time-factor": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -120,17 +144,33 @@ async function main(): Promise<void> {
 
   const reporter = values.reporter === "json" ? "json" : "pretty";
 
+  if (values.update && values.baseline === undefined) throw new Error("--update needs --baseline");
+  if (values.baseline !== undefined && !values.bench) throw new Error("--baseline needs --bench");
+  const timeFactor =
+    values["time-factor"] === undefined ? DEFAULT_TIME_FACTOR : Number(values["time-factor"]);
+  if (!(timeFactor > 0)) throw new Error("--time-factor must be a positive number");
+  const baseline =
+    values.baseline === undefined
+      ? undefined
+      : {
+          path: values.baseline,
+          file: loadBaseline(values.baseline, values.update === true),
+          update: values.update === true,
+          timeFactor,
+        };
+
   const configRequired = !values.list;
   const config = tryLoadConfig(values.config, configRequired);
 
-  const { include, exclude } = discoveryGlobs(config);
+  const { include, exclude } = discoveryGlobs(config, values.bench === true);
   let files = discoverTests({ include, exclude });
   if (positionals.length > 0) {
     files = files.filter((f) => positionals.some((p) => f.includes(p)));
   }
   if (files.length === 0) {
     const where = positionals.length ? ` matching ${positionals.join(", ")}` : "";
-    throw new Error(`no test files found${where} (include: ${include.join(", ")})`);
+    const noun = values.bench ? "bench" : "test";
+    throw new Error(`no ${noun} files found${where} (include: ${include.join(", ")})`);
   }
 
   const matches = matchTestName(values.testNamePattern);
@@ -158,7 +198,12 @@ async function main(): Promise<void> {
 
   const runtime = target.runtime ?? "qjs";
   const timeoutMs = target.timeout ?? DEFAULT_TIMEOUT_MS;
-  const failed = await runOnce(device, target, source, runtime, { timeoutMs, reporter, tests });
+  const failed = await runOnce(device, target, source, runtime, {
+    timeoutMs,
+    reporter,
+    tests,
+    baseline,
+  });
   if (failed > 0) process.exitCode = EXIT_TEST_FAILURE;
 }
 
@@ -166,6 +211,7 @@ interface RunOnceOptions {
   timeoutMs: number;
   reporter: Reporter;
   tests: TestInfo[];
+  baseline?: { path: string; file: BaselineFile; update: boolean; timeFactor: number };
 }
 
 async function runOnce(
@@ -204,10 +250,20 @@ async function runOnce(
     process.stdout.write(JSON.stringify({ type: "start", total: all.length }) + "\n");
   }
 
+  let environment: Environment | undefined;
   const subOpts = {
     timeoutMs: opts.timeoutMs,
     reporter,
     metaByIndex: metaByIndex(all),
+    baseline: opts.baseline && {
+      file: opts.baseline.file,
+      runtime,
+      machine: hostname(),
+      timeFactor: opts.baseline.timeFactor,
+    },
+    onEnvironment: (env: Environment): void => {
+      environment = env;
+    },
   };
   const results: TestResult[] = [];
 
@@ -229,6 +285,7 @@ async function runOnce(
         name: t.name,
         durationMs: 0,
         status: "skipped",
+        kind: t.kind,
         file: toProjectRelative(t.file),
         line: t.line,
         error: { name: "Skipped", message: `requires a spawnable target (launch: ${t.launch})` },
@@ -252,6 +309,19 @@ async function runOnce(
     await closeCapped(iso);
   }
 
+  if (opts.baseline?.update) {
+    if (environment === undefined) {
+      console.error("[injest] baseline not updated: the suite did not run");
+    } else {
+      const key = baselineKey(environment, runtime);
+      saveBaseline(
+        opts.baseline.path,
+        updateBaseline(opts.baseline.file, key, hostname(), results),
+      );
+      console.error(`[injest] baseline ${key} written to ${opts.baseline.path}`);
+    }
+  }
+
   const { failed } = summarize(results, reporter ?? "pretty");
   return failed;
 }
@@ -270,7 +340,9 @@ function printList(tests: TestInfo[], reporter: Reporter): void {
   for (const t of located) {
     const loc = t.file ? ` (${t.file}:${t.line ?? "?"})` : "";
     const tags =
-      (t.mode === "run" ? "" : ` [${t.mode}]`) + (t.launch === "shared" ? "" : ` [${t.launch}]`);
+      (t.mode === "run" ? "" : ` [${t.mode}]`) +
+      (t.launch === "shared" ? "" : ` [${t.launch}]`) +
+      (t.kind === "test" ? "" : ` [${t.kind}]`);
     console.log(`  ${t.id}${loc}${tags}`);
   }
   console.log(`\n${tests.length} test(s)`);

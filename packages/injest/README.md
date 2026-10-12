@@ -130,6 +130,10 @@ injest [file-filters...] [options]
   --only <id>                 run only the test(s) with this stable id (repeatable)
   --reporter <pretty|json>    output format (json = NDJSON on stdout)
   --list                      list tests (id, location) without running
+  --bench                     run the bench files instead of the test files
+  --baseline <path>           compare each bench with this file; a counter above it fails
+  --update                    with --baseline: write this platform's entry from the run
+  --time-factor <n>           also fail on min time > n× baseline, same machine only (default 3)
   -h, --help                  show help
 ```
 
@@ -165,6 +169,75 @@ injest [file-filters...] [options]
     `await expect(p).rejects.toThrow("boom")`).
   - `toBe`/`toEqual` failures carry `expected`/`actual` for editor diffs.
 
+## Benchmarks
+
+A bench is a test whose body is sampled: `injest --bench` runs the files matched by the
+config's `bench` globs (default `["bench/**/*.bench.{ts,js}"]`) and reports, per bench, the
+wall-clock and user time of every iteration and the number of calls each registered counter
+saw. Selection, `describe`, hooks and launch modes work as for tests.
+
+```ts
+import { bench, counter } from "@frida/injest/agent";
+
+counter("symbolTables", Module.prototype, "enumerateSymbols"); // calls to a JS method
+counter("lookups", Module.getGlobalExportByName("dlsym")); // calls to a native function
+
+bench(
+  "listing a type",
+  ({ measure }) => {
+    const type = lookUp("MyApp.Robot"); // setup: not sampled
+    measure(() => type.methods()); // the sampled body; may return a promise
+  },
+  { warmup: 2, iterations: 10 },
+);
+
+bench.isolated("first listing in a fresh process", ({ measure }) => {
+  measure(() => lookUp("MyApp.Robot").methods());
+});
+```
+
+- `bench(name, fn, opts?)` — `fn` receives `({ skip, measure })` and calls `measure(body)`
+  exactly once. `body` runs `opts.warmup` times unsampled (default 2), then `opts.iterations`
+  times sampled (default 10). `opts.launch` and `opts.timeout` are as for `test`; `bench.isolated`
+  spawns a fresh process, where the first iteration is the cold one.
+- `counter(name, object, method)` wraps a JS method; `counter(name, nativePointer)` counts a
+  native function through Frida's `CallCountSampler`. Each registered counter is sampled around
+  every iteration. A count is exact, so it is the signal to gate on; time is for reading.
+- Time comes from Frida's `WallClockSampler` and `UserTimeSampler` in microseconds, with a
+  `Date.now()` fallback on a runtime without them (then `userUs` is absent).
+
+A bench passes when `fn` and every iteration complete; it fails like a test otherwise. The
+pretty reporter prints the minimum and median wall time, the iteration count and each counter
+(a counter that varied between iterations shows its range, `82..83`); the JSON reporter emits a
+`{"type":"bench",…}` record in place of the test record, with `iterations`, `wallUs`, `userUs`
+and `counters` inline.
+
+### Baselines
+
+```sh
+npx injest --bench --baseline bench/baseline.json --update   # record this platform's numbers
+npx injest --bench --baseline bench/baseline.json            # fail on a regression
+```
+
+The file holds one entry per `platform-arch-runtime`, since what a body touches can differ per
+platform, with the machine that produced it. Per bench it stores each counter at its worst
+iteration and the min and median wall time. `--update` rewrites the entries of the benches that
+ran and keeps the rest, so a filtered run refreshes only what it measured; the diff of the file
+is the performance review.
+
+Comparing:
+
+- A counter **above** its baseline fails the bench with a `BaselineError`, by however little:
+  a count that legitimately grows is a deliberate `--update` in the same change.
+- A counter below its baseline, or one the baseline lacks, is reported as drift and passes.
+- Wall time fails only when the minimum exceeds `--time-factor` × the baseline's minimum **and**
+  the baseline was recorded on this machine; elsewhere time is shown, never judged.
+- A bench the entry lacks is `[new]`; a platform the file lacks is reported once and compared
+  not at all.
+
+The JSON record carries the outcome as `baseline: { verdict, detail }`, with `verdict` one of
+`ok | new | drifted | regressed`.
+
 ## JSON output
 
 `--reporter json` emits one object per line on stdout (diagnostics on stderr):
@@ -174,6 +247,7 @@ injest [file-filters...] [options]
 {"type":"output","level":"info","text":"hello","name":"…","file":"tests/x.test.ts","line":10}
 {"type":"test","name":"…","status":"passed","durationMs":0,"file":"tests/x.test.ts","line":10}
 {"type":"test","name":"boom","status":"failed","durationMs":1,"file":"tests/x.test.ts","line":12,"error":{"name":"AssertionError","message":"…","expected":"…","actual":"…"}}
+{"type":"bench","name":"listing a type","status":"passed","durationMs":3,"file":"bench/x.bench.ts","line":4,"iterations":3,"wallUs":[52,48,49],"userUs":[51,48,48],"counters":{"symbolTables":[1,1,1]}}
 {"type":"end","passed":1,"failed":1,"skipped":0,"total":2}
 ```
 

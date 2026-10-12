@@ -2,6 +2,16 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import type { Script, Session } from "frida";
 
+import {
+  baselineKey,
+  compareBench,
+  formatUs,
+  type BaselineComparison,
+  type BaselineEntry,
+  type BaselineFile,
+  type Environment,
+} from "./baseline.js";
+
 export function toProjectRelative(file: string | undefined): string | undefined {
   if (!file) return file;
   const cwd = process.cwd();
@@ -18,6 +28,13 @@ export interface TestError {
   actual?: string;
 }
 
+export interface BenchSamples {
+  iterations: number;
+  wallUs: number[];
+  userUs?: number[];
+  counters: Record<string, number[]>;
+}
+
 export interface TestResult {
   index: number;
   id?: string;
@@ -27,15 +44,26 @@ export interface TestResult {
   file?: string;
   line?: number;
   error?: TestError;
+  kind?: "test" | "bench";
+  bench?: BenchSamples;
+  baseline?: BaselineComparison;
 }
 
 export type Reporter = "pretty" | "json";
+
+export interface BaselineOptions {
+  file: BaselineFile;
+  runtime: string;
+  machine: string;
+  timeFactor: number;
+}
 
 export interface TestMeta {
   id?: string;
   name?: string;
   file?: string;
   line?: number;
+  kind?: "test" | "bench";
 }
 
 export interface RunOptions {
@@ -45,6 +73,8 @@ export interface RunOptions {
   only?: number[];
   metaByIndex?: Map<number, TestMeta>;
   onResume?: () => Promise<void>;
+  baseline?: BaselineOptions;
+  onEnvironment?: (env: Environment) => void;
 }
 
 export async function runSuite(
@@ -73,7 +103,21 @@ export async function runSuite(
   };
 
   const reporter = opts.reporter ?? "pretty";
+  let baselineEntry: BaselineEntry | undefined;
   const record = (r: TestResult): void => {
+    if (r.bench && opts.baseline && baselineEntry) {
+      const { machine, timeFactor } = opts.baseline;
+      r.baseline = compareBench(
+        r.bench,
+        baselineEntry.benches[r.name],
+        baselineEntry.machine === machine,
+        timeFactor,
+      );
+      if (r.baseline.verdict === "regressed") {
+        r.status = "failed";
+        r.error = { name: "BaselineError", message: r.baseline.detail ?? "" };
+      }
+    }
     results[r.index] = r;
     reportResult(r, reporter);
   };
@@ -137,10 +181,18 @@ export async function runSuite(
     if (!p || typeof p !== "object" || typeof p.ft !== "string") return;
 
     switch (p.ft) {
-      case "plan":
+      case "plan": {
         total = Number(p.total) || 0;
         names = Array.isArray(p.names) ? (p.names as string[]) : [];
+        const env: Environment = { platform: String(p.platform), arch: String(p.arch) };
+        opts.onEnvironment?.(env);
+        if (opts.baseline) {
+          const key = baselineKey(env, opts.baseline.runtime);
+          baselineEntry = opts.baseline.file[key];
+          if (!baselineEntry) console.error(`[injest] no baseline for ${key}; nothing to compare`);
+        }
         break;
+      }
       case "resume":
         Promise.resolve(opts.onResume?.())
           .catch(() => {})
@@ -178,6 +230,8 @@ export async function runSuite(
           file: meta.file,
           line: meta.line,
           error: p.error as TestError | undefined,
+          kind: meta.kind,
+          bench: p.bench as BenchSamples | undefined,
         });
         current = -1;
         currentFile = undefined;
@@ -268,9 +322,9 @@ export function reportOutput(o: OutputRecord, reporter: Reporter): void {
 }
 
 function printResult(r: TestResult): void {
-  const ms = `(${r.durationMs}ms)`;
+  const detail = r.bench ? describeBench(r.bench) : `(${r.durationMs}ms)`;
   if (r.status === "passed") {
-    console.log(`  ✓ ${r.name} ${ms}`);
+    console.log(`  ✓ ${r.name} ${detail}${baselineNote(r.baseline)}`);
     return;
   }
   if (r.status === "skipped") {
@@ -279,7 +333,7 @@ function printResult(r: TestResult): void {
     return;
   }
   const tag = r.status === "failed" ? "" : ` [${r.status}]`;
-  console.log(`  ✗ ${r.name} ${ms}${tag}`);
+  console.log(`  ✗ ${r.name} ${detail}${tag}`);
   if (r.error) {
     console.log(`      ${r.error.name}: ${r.error.message}`);
     if (r.error.expected !== undefined || r.error.actual !== undefined) {
@@ -297,6 +351,31 @@ function printResult(r: TestResult): void {
   }
 }
 
+function describeBench(b: BenchSamples): string {
+  const sorted = [...b.wallUs].sort((x, y) => x - y);
+  const min = sorted[0] ?? 0;
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  const counts = Object.entries(b.counters)
+    .filter(([, values]) => values.some((v) => v !== 0))
+    .map(([name, values]) => `${name}=${describeCounts(values)}`);
+  const timing =
+    b.iterations === 1
+      ? `(${formatUs(min)}, once)`
+      : `(min ${formatUs(min)}, median ${formatUs(median)}, n=${b.iterations})`;
+  return [timing, ...counts].join(" ");
+}
+
+// a counter that varies between iterations is a finding in itself, so show its range
+function describeCounts(values: number[]): string {
+  const distinct = new Set(values);
+  return distinct.size === 1 ? String(values[0]) : `${Math.min(...values)}..${Math.max(...values)}`;
+}
+
+function baselineNote(c: BaselineComparison | undefined): string {
+  if (c === undefined || c.verdict === "ok" || c.verdict === "regressed") return "";
+  return c.verdict === "new" ? " [new]" : ` [baseline drift: ${c.detail}]`;
+}
+
 function isRunnerFrame(frame: string): boolean {
   return /agent\/(runtime|expect)\.|[/\\]entry\.|\.injest/.test(frame);
 }
@@ -306,17 +385,21 @@ function indentMultiline(value: string | undefined): string {
 }
 
 function emitJson(r: TestResult): void {
+  const record = {
+    id: r.id,
+    name: r.name,
+    status: r.status,
+    durationMs: r.durationMs,
+    file: r.file,
+    line: r.line,
+    error: r.error,
+  };
   process.stdout.write(
-    JSON.stringify({
-      type: "test",
-      id: r.id,
-      name: r.name,
-      status: r.status,
-      durationMs: r.durationMs,
-      file: r.file,
-      line: r.line,
-      error: r.error,
-    }) + "\n",
+    JSON.stringify(
+      r.kind === "bench"
+        ? { type: "bench", ...record, ...r.bench, baseline: r.baseline }
+        : { type: "test", ...record },
+    ) + "\n",
   );
 }
 

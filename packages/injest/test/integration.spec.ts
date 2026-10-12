@@ -15,9 +15,27 @@ const perTestTimeoutFixture = fileURLToPath(
   new URL("./fixtures/per-test-timeout.test.ts", import.meta.url),
 );
 const gumValuesFixture = fileURLToPath(new URL("./fixtures/gum-values.test.ts", import.meta.url));
+const benchFixture = fileURLToPath(new URL("./fixtures/bench.test.ts", import.meta.url));
 
 const byName = (results: TestResult[]): Map<string, TestResult> =>
   new Map(results.map((r) => [r.name, r]));
+
+test("bench: samples every iteration's time and counters, and fails like a test", async () => {
+  const r = byName(await runFixture([benchFixture]));
+
+  const steps = r.get("counts steps and samples time");
+  assert.equal(steps?.status, "passed", steps?.error?.message);
+  assert.equal(steps?.bench?.iterations, 3);
+  assert.equal(steps?.bench?.wallUs.length, 3);
+  assert.deepEqual(steps?.bench?.counters, { steps: [2, 2, 2] });
+
+  assert.deepEqual(r.get("awaits an async body")?.bench?.counters, { steps: [1, 1] });
+
+  assert.equal(r.get("fails when the body throws")?.status, "failed");
+  assert.equal(r.get("fails when the body throws")?.error?.message, "boom");
+  assert.equal(r.get("fails without a measurement")?.status, "failed");
+  assert.match(r.get("fails without a measurement")?.error?.message ?? "", /called it 0 times/);
+});
 
 test("runs a real suite in a GumJS system session", async () => {
   const results = await runFixture([suite]);

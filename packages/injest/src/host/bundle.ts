@@ -4,6 +4,7 @@ import { join, parse, relative, resolve, sep } from "node:path";
 import * as frida from "frida";
 
 export const DEFAULT_INCLUDE = ["tests/**/*.test.{ts,js}"];
+export const DEFAULT_BENCH_INCLUDE = ["bench/**/*.bench.{ts,js}"];
 
 export interface DiscoverOptions {
   include: string[];

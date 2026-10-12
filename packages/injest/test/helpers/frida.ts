@@ -26,7 +26,7 @@ export async function runFixture(
     const metaByIndex = new Map(
       tests.map((t) => [
         t.index,
-        { id: t.id, name: t.name, file: toProjectRelative(t.file), line: t.line },
+        { id: t.id, name: t.name, file: toProjectRelative(t.file), line: t.line, kind: t.kind },
       ]),
     );
     // A system session can't spawn, so isolated/suspended tests are excluded.

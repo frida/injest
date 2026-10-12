@@ -43,6 +43,24 @@ test("discoverTestInfo: duplicate names get #n ids, unique names stay bare", () 
   assert.deepEqual(byName("Group › alpha"), ["Group › alpha"]);
 });
 
+test("discoverTestInfo: classifies bench calls, isolated included", () => {
+  const benchFixture = fileURLToPath(
+    new URL("./fixtures/bench-discovery.fixture.ts", import.meta.url),
+  );
+  const summary = discoverTestInfo([benchFixture]).map((t) => ({
+    name: t.name,
+    kind: t.kind,
+    launch: t.launch,
+    line: t.line,
+  }));
+  assert.deepEqual(summary, [
+    { name: "warm", kind: "bench", launch: "shared", line: 5 },
+    { name: "cold", kind: "bench", launch: "isolated", line: 6 },
+    { name: "Group › nested", kind: "bench", launch: "shared", line: 8 },
+  ]);
+  assert.ok(discoverTestInfo([fixture]).every((t) => t.kind === "test"));
+});
+
 test("discoverTestInfo: missing files are skipped, not fatal", () => {
   const tests = discoverTestInfo(["/no/such/file.test.ts", fixture]);
   assert.equal(tests.length, 7);

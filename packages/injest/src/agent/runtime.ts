@@ -39,6 +39,24 @@ export interface TestOptions {
   timeout?: number;
 }
 
+export interface BenchOptions extends TestOptions {
+  warmup?: number;
+  iterations?: number;
+}
+
+export interface BenchContext extends TestContext {
+  measure: (body: () => unknown) => Promise<void>;
+}
+
+export type BenchFn = (ctx: BenchContext) => void | Promise<void>;
+
+export interface BenchSamples {
+  iterations: number;
+  wallUs: number[];
+  userUs?: number[];
+  counters: Record<string, number[]>;
+}
+
 type Thunk = () => void | Promise<void>;
 
 interface Suite {
@@ -56,6 +74,7 @@ interface TestCase {
   launch: Launch;
   suite: Suite;
   timeout?: number;
+  samples?: BenchSamples;
 }
 
 interface SerializedError {
@@ -76,16 +95,18 @@ const suiteStack: string[] = [];
 const rootSuite: Suite = { parent: null, beforeEach: [], afterEach: [], skipped: false };
 let currentSuite = rootSuite;
 
-function add(name: string, fn: Thunk, mode: Mode, opts?: TestOptions): void {
+function add(name: string, fn: Thunk, mode: Mode, opts?: TestOptions): TestCase {
   const qualifiedName = [...suiteStack, name].join(" › ");
-  registry.push({
+  const entry: TestCase = {
     name: qualifiedName,
     fn,
     mode,
     launch: opts?.launch ?? "shared",
     suite: currentSuite,
     timeout: opts?.timeout,
-  });
+  };
+  registry.push(entry);
+  return entry;
 }
 
 export function describe(label: string, fn: SuiteFn): void {
@@ -149,6 +170,131 @@ export const test = Object.assign(
   },
 );
 
+const DEFAULT_WARMUP = 2;
+const DEFAULT_ITERATIONS = 10;
+
+export const bench = Object.assign(
+  (name: string, fn: BenchFn, opts?: BenchOptions) => addBench(name, fn, opts),
+  {
+    isolated: (name: string, fn: BenchFn, opts?: BenchOptions) =>
+      addBench(name, fn, { ...opts, launch: "isolated" }),
+  },
+);
+
+function addBench(name: string, fn: BenchFn, opts?: BenchOptions): void {
+  const warmup = opts?.warmup ?? DEFAULT_WARMUP;
+  const iterations = opts?.iterations ?? DEFAULT_ITERATIONS;
+  const entry = add(
+    name,
+    async () => {
+      entry.samples = await runBench(fn, warmup, iterations);
+    },
+    "run",
+    opts,
+  );
+}
+
+async function runBench(fn: BenchFn, warmup: number, iterations: number): Promise<BenchSamples> {
+  const runs: Promise<BenchSamples>[] = [];
+  const measure = (body: () => unknown): Promise<void> => {
+    const run = sample(body, warmup, iterations);
+    runs.push(run);
+    const settled = run.then(() => undefined);
+    settled.catch(() => {}); // the failure surfaces through Promise.all below even if unawaited
+    return settled;
+  };
+  await fn({ skip, measure });
+  const samples = await Promise.all(runs);
+  if (samples.length !== 1) {
+    throw new Error(
+      `a bench calls measure(body) exactly once; this one called it ${samples.length} times`,
+    );
+  }
+  return samples[0];
+}
+
+interface Counter {
+  name: string;
+  read: () => number;
+}
+
+const counters: Counter[] = [];
+
+export function counter(name: string, target: object, method: string): void;
+export function counter(name: string, fn: NativePointer): void;
+export function counter(name: string, target: object, method?: string): void {
+  if (counters.some((c) => c.name === name)) {
+    throw new Error(`counter ${name} is already registered`);
+  }
+  if (method === undefined) {
+    if (typeof CallCountSampler === "undefined") {
+      throw new Error(`counter ${name}: counting native calls needs a Frida with CallCountSampler`);
+    }
+    const sampler = new CallCountSampler([target as NativePointer]);
+    counters.push({ name, read: () => Number(sampler.sample()) });
+    return;
+  }
+  const host = target as Record<string, (...args: unknown[]) => unknown>;
+  const original = host[method];
+  if (typeof original !== "function") {
+    throw new Error(`counter ${name}: ${method} is not a method of the given object`);
+  }
+  let calls = 0;
+  try {
+    host[method] = function (this: unknown, ...args: unknown[]) {
+      calls++;
+      return original.apply(this, args);
+    };
+  } catch {
+    throw new Error(
+      `counter ${name}: ${method} is read-only on its object; count a native function instead`,
+    );
+  }
+  counters.push({ name, read: () => calls });
+}
+
+let samplers: { wall: Sampler | null; user: Sampler | null } | undefined;
+
+function benchSamplers(): { wall: Sampler | null; user: Sampler | null } {
+  samplers ??= {
+    wall: typeof WallClockSampler !== "undefined" ? new WallClockSampler() : null,
+    user: typeof UserTimeSampler !== "undefined" ? new UserTimeSampler() : null,
+  };
+  return samplers;
+}
+
+async function sample(
+  body: () => unknown,
+  warmup: number,
+  iterations: number,
+): Promise<BenchSamples> {
+  const { wall, user } = benchSamplers();
+  const wallNow = (): number => (wall !== null ? Number(wall.sample()) : Date.now() * 1000);
+  for (let i = 0; i < warmup; i++) {
+    const r = body();
+    if (r instanceof Promise) await r;
+  }
+  const wallUs: number[] = [];
+  const userUs: number[] = [];
+  const counts = counters.map((): number[] => []);
+  for (let i = 0; i < iterations; i++) {
+    const before = counters.map((c) => c.read());
+    const user0 = user?.sample();
+    const wall0 = wallNow();
+    const r = body();
+    if (r instanceof Promise) await r;
+    wallUs.push(wallNow() - wall0);
+    if (user !== null) userUs.push(Number(user.sample() - (user0 as bigint)));
+    counters.forEach((c, k) => counts[k].push(c.read() - before[k]));
+  }
+  return {
+    iterations,
+    wallUs,
+    userUs: user !== null ? userUs : undefined,
+    counters: Object.fromEntries(counters.map((c, k) => [c.name, counts[k]])),
+  };
+}
+
 function resume(): Promise<void> {
   return new Promise<void>((resolve) => {
     recv("ft:resume-ack", () => resolve());
@@ -172,6 +318,8 @@ export async function run(options: RunOptions = {}): Promise<void> {
     total: selected.length,
     names: selected.map((e) => e.test.name),
     indices: selected.map((e) => e.testIndex),
+    platform: Process.platform,
+    arch: Process.arch,
   });
   for (let i = 0; i < selected.length; i++) {
     const { test: t, testIndex } = selected[i];
@@ -233,7 +381,15 @@ export async function run(options: RunOptions = {}): Promise<void> {
         error: skipSignal.reason ? { name: "Skipped", message: skipSignal.reason } : undefined,
       });
     } else {
-      send({ ft: "result", index: i, testIndex, name: t.name, passed: true, durationMs });
+      send({
+        ft: "result",
+        index: i,
+        testIndex,
+        name: t.name,
+        passed: true,
+        durationMs,
+        bench: t.samples,
+      });
     }
   }
   send({ ft: "done", total: selected.length });

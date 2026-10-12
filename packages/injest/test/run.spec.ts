@@ -2,8 +2,70 @@ import assert from "node:assert/strict";
 import { relative } from "node:path";
 import { test } from "node:test";
 
-import { reportOutput, summarize, toProjectRelative, type TestResult } from "../src/host/run.js";
+import {
+  reportOutput,
+  reportResult,
+  summarize,
+  toProjectRelative,
+  type TestResult,
+} from "../src/host/run.js";
 import { captureStdout } from "./helpers/capture.js";
+
+const benchResult: TestResult = {
+  index: 0,
+  name: "list",
+  durationMs: 3,
+  status: "passed",
+  kind: "bench",
+  bench: {
+    iterations: 3,
+    wallUs: [1200, 900, 1000],
+    userUs: [1100, 850, 950],
+    counters: { tables: [1, 1, 1], calls: [82, 83, 82], scans: [0, 0, 0] },
+  },
+};
+
+test("reportResult: pretty reporter summarizes a bench's samples and its non-zero counters", async () => {
+  const out = await captureStdout(() => reportResult(benchResult, "pretty"));
+  assert.equal(out, "  ✓ list (min 900µs, median 1.0ms, n=3) tables=1 calls=82..83\n");
+});
+
+test("reportResult: pretty reporter notes a bench new to, or drifted from, the baseline", async () => {
+  const fresh = await captureStdout(() =>
+    reportResult({ ...benchResult, baseline: { verdict: "new" } }, "pretty"),
+  );
+  assert.equal(fresh, "  ✓ list (min 900µs, median 1.0ms, n=3) tables=1 calls=82..83 [new]\n");
+  const drifted = await captureStdout(() =>
+    reportResult(
+      { ...benchResult, baseline: { verdict: "drifted", detail: "tables 1 < 2" } },
+      "pretty",
+    ),
+  );
+  assert.equal(
+    drifted,
+    "  ✓ list (min 900µs, median 1.0ms, n=3) tables=1 calls=82..83 [baseline drift: tables 1 < 2]\n",
+  );
+});
+
+test("reportResult: pretty reporter prints a single iteration as one time", async () => {
+  const once: TestResult = {
+    ...benchResult,
+    bench: { iterations: 1, wallUs: [14100], counters: { tables: [2] } },
+  };
+  const out = await captureStdout(() => reportResult(once, "pretty"));
+  assert.equal(out, "  ✓ list (14.1ms, once) tables=2\n");
+});
+
+test("reportResult: json reporter emits a bench record with its samples inline", async () => {
+  const out = await captureStdout(() => reportResult(benchResult, "json"));
+  assert.deepEqual(JSON.parse(out.trim()), {
+    type: "bench",
+    name: "list",
+    status: "passed",
+    durationMs: 3,
+    ...benchResult.bench,
+  });
+});
 
 test("toProjectRelative: undefined passes through", () => {
   assert.equal(toProjectRelative(undefined), undefined);

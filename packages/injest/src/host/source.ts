@@ -4,6 +4,7 @@ import * as ts from "typescript";
 
 export type Mode = "run" | "skip";
 export type Launch = "shared" | "isolated" | "suspended";
+export type Kind = "test" | "bench";
 
 export interface TestInfo {
   id: string;
@@ -11,6 +12,7 @@ export interface TestInfo {
   name: string;
   mode: Mode;
   launch: Launch;
+  kind: Kind;
   file?: string;
   line?: number;
 }
@@ -20,18 +22,26 @@ const LAUNCH_BY_MEMBER: Record<string, Launch> = {
   suspended: "suspended",
 };
 
-function classifyTestCallee(callee: ts.Expression): { mode: Mode; launch: Launch } | null {
+const KIND_BY_CALLEE = new Map<string, Kind>([
+  ["test", "test"],
+  ["bench", "bench"],
+]);
+
+type Classified = { mode: Mode; launch: Launch; kind: Kind };
+
+function classifyTestCallee(callee: ts.Expression): Classified | null {
   if (ts.isIdentifier(callee)) {
-    return callee.text === "test" ? { mode: "run", launch: "shared" } : null;
+    const kind = KIND_BY_CALLEE.get(callee.text);
+    return kind ? { mode: "run", launch: "shared", kind } : null;
   }
-  if (
-    ts.isPropertyAccessExpression(callee) &&
-    ts.isIdentifier(callee.expression) &&
-    callee.expression.text === "test"
-  ) {
-    if (callee.name.text === "skip") return { mode: "skip", launch: "shared" };
+  if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+    const kind = KIND_BY_CALLEE.get(callee.expression.text);
+    if (!kind) return null;
+    if (callee.name.text === "skip" && kind === "test")
+      return { mode: "skip", launch: "shared", kind };
     const launch = LAUNCH_BY_MEMBER[callee.name.text];
-    if (launch) return { mode: "run", launch };
+    // a bench has no suspended form: nothing to resume once the measured body is running
+    if (launch && (kind === "test" || launch === "isolated")) return { mode: "run", launch, kind };
   }
   return null;
 }

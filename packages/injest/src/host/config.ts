@@ -21,6 +21,7 @@ export interface Config {
   targets: Record<string, TargetConfig>;
   include?: string[];
   exclude?: string[];
+  bench?: string[];
 }
 
 const schema = JSON.parse(
