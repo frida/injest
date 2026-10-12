@@ -21,7 +21,13 @@ import {
   type TestMeta,
   type TestResult,
 } from "./run.js";
-import { getDevice, openSession, runtimeOption, type OpenedSession } from "./session.js";
+import {
+  getDevice,
+  loadScript,
+  openSession,
+  runtimeOption,
+  type OpenedSession,
+} from "./session.js";
 import { discoverTestInfo, matchTestName, type TestInfo } from "./source.js";
 
 const DEFAULT_TIMEOUT_MS = 10000;
@@ -178,7 +184,7 @@ async function runOnce(
     primaryScript = await primary.session.createScript(source, {
       runtime: runtimeOption(runtime),
     });
-    await primaryScript.load();
+    await loadScript(primaryScript);
   } catch (e) {
     await closeCapped(primary);
     const msg = e instanceof Error ? e.message : String(e);
@@ -233,7 +239,7 @@ async function runOnce(
     }
     const iso = await openSession(device, target);
     const script = await iso.session.createScript(source, { runtime: runtimeOption(runtime) });
-    await script.load();
+    await loadScript(script);
     // isolated resumes now; suspended stays gated and resumes itself mid-test via ctx.resume()
     if (t.launch === "isolated") await iso.resume();
     results.push(

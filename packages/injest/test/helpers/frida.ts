@@ -1,6 +1,6 @@
 import { compileTests } from "../../src/host/bundle.js";
 import { runSuite, toProjectRelative, type TestResult } from "../../src/host/run.js";
-import { getDevice, openSession, runtimeOption } from "../../src/host/session.js";
+import { getDevice, loadScript, openSession, runtimeOption } from "../../src/host/session.js";
 import { discoverTestInfo } from "../../src/host/source.js";
 import type { Runtime, TargetConfig } from "../../src/host/config.js";
 import { captureStdout } from "./capture.js";
@@ -21,7 +21,7 @@ export async function runFixture(
     const script = await opened.session.createScript(source, {
       runtime: runtimeOption(opts.runtime),
     });
-    await script.load();
+    await loadScript(script);
 
     const metaByIndex = new Map(
       tests.map((t) => [

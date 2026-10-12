@@ -215,7 +215,10 @@ export async function runSuite(
   };
   api.run({ grep: opts.grep, only: opts.only }).catch((err: unknown) => {
     if (done) return;
-    const message = err instanceof Error ? err.message : String(err);
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = raw.includes("unable to find method 'run'")
+      ? "the agent registered no run(): a test file threw while loading (see the agent error above)"
+      : raw;
     console.error("[injest] run() failed:", message);
     abort(`run() failed: ${message}`, false);
   });

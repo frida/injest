@@ -65,6 +65,21 @@ export async function openSession(
   throw new Error('invalid "session" in target config');
 }
 
+// An exception while a test file evaluates arrives as an error message during load, before the
+// suite's own handler listens; without this it would be lost, leaving only a missing run().
+export async function loadScript(script: frida.Script): Promise<void> {
+  const onMessage = (message: frida.Message): void => {
+    if (message.type === "error")
+      console.error("[agent error]", message.stack ?? message.description);
+  };
+  script.message.connect(onMessage);
+  try {
+    await script.load();
+  } finally {
+    script.message.disconnect(onMessage);
+  }
+}
+
 export function runtimeOption(runtime?: Runtime): frida.ScriptRuntime {
   switch (runtime) {
     case "qjs":
