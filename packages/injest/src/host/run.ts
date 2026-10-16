@@ -30,6 +30,7 @@ export interface TestError {
 
 export interface BenchSamples {
   iterations: number;
+  tickUs: number;
   wallUs: number[];
   userUs?: number[];
   counters: Record<string, number[]>;

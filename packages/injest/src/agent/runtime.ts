@@ -52,6 +52,8 @@ export type BenchFn = (ctx: BenchContext) => void | Promise<void>;
 
 export interface BenchSamples {
   iterations: number;
+  /** The wall sampler's unit: 1µs from WallClockSampler, 1000 from the Date.now() fallback. */
+  tickUs: number;
   wallUs: number[];
   userUs?: number[];
   counters: Record<string, number[]>;
@@ -289,6 +291,7 @@ async function sample(
   }
   return {
     iterations,
+    tickUs: wall !== null ? 1 : 1000,
     wallUs,
     userUs: user !== null ? userUs : undefined,
     counters: Object.fromEntries(counters.map((c, k) => [c.name, counts[k]])),

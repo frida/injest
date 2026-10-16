@@ -22,6 +22,10 @@ export interface Environment {
 
 export type BaselineVerdict = "ok" | "new" | "drifted" | "regressed";
 
+// A minimum within this many ticks of its baseline is timer noise, whatever the ratio says: a
+// baseline of 0µs would otherwise make every nonzero reading an infinite regression.
+export const TIMER_FLOOR_TICKS = 10;
+
 export interface BaselineComparison {
   verdict: BaselineVerdict;
   detail?: string;
@@ -73,7 +77,12 @@ export function compareBench(
     else if (value > was) regressions.push(`${name} ${value} > ${was}`);
     else if (value < was) drifts.push(`${name} ${value} < ${was}`);
   }
-  if (sameMachine && current.wallUs.min > timeFactor * base.wallUs.min) {
+  const floorUs = TIMER_FLOOR_TICKS * samples.tickUs;
+  if (
+    sameMachine &&
+    current.wallUs.min > timeFactor * base.wallUs.min &&
+    current.wallUs.min - base.wallUs.min > floorUs
+  ) {
     regressions.push(
       `min ${formatUs(current.wallUs.min)} > ${timeFactor}× ${formatUs(base.wallUs.min)}`,
     );

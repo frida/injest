@@ -16,6 +16,7 @@ import type { BenchSamples, TestResult } from "../src/host/run.js";
 
 const samples: BenchSamples = {
   iterations: 3,
+  tickUs: 1,
   wallUs: [1200, 900, 1000],
   counters: { tables: [1, 1, 1], calls: [82, 83, 82] },
 };
@@ -26,6 +27,7 @@ const withCounters = (
   wallUs = samples.wallUs,
 ): BenchSamples => ({
   iterations: 3,
+  tickUs: 1,
   wallUs,
   counters,
 });
@@ -69,6 +71,29 @@ test("compareBench: time counts only on the machine that set the baseline", () =
     detail: "min 3.0ms > 3× 900µs",
   });
   assert.deepEqual(compareBench(slow, base, true, 4), { verdict: "ok" });
+});
+
+test("compareBench: a minimum within the timer floor is noise, whatever the ratio", () => {
+  const tiny = summarizeBench(withCounters(samples.counters, [0, 0, 1]));
+  const ticks = (wallUs: number[], tickUs: number): BenchSamples => ({
+    ...withCounters(samples.counters, wallUs),
+    tickUs,
+  });
+  // 1µs against 0µs is an infinite ratio but one tick
+  assert.deepEqual(compareBench(ticks([1, 1, 2], 1), tiny, true, 3), { verdict: "ok" });
+  assert.deepEqual(compareBench(ticks([10, 10, 12], 1), tiny, true, 3), { verdict: "ok" });
+  assert.deepEqual(compareBench(ticks([11, 11, 12], 1), tiny, true, 3), {
+    verdict: "regressed",
+    detail: "min 11µs > 3× 0µs",
+  });
+  // the Date.now() fallback ticks in milliseconds, so its floor is 10ms
+  assert.deepEqual(compareBench(ticks([4000, 4000, 5000], 1000), tiny, true, 3), {
+    verdict: "ok",
+  });
+  assert.deepEqual(compareBench(ticks([11000, 11000, 12000], 1000), tiny, true, 3), {
+    verdict: "regressed",
+    detail: "min 11.0ms > 3× 0µs",
+  });
 });
 
 test("updateBaseline: replaces the benches that ran and keeps the rest of the entry", () => {

@@ -27,6 +27,7 @@ test("bench: samples every iteration's time and counters, and fails like a test"
   assert.equal(steps?.status, "passed", steps?.error?.message);
   assert.equal(steps?.bench?.iterations, 3);
   assert.equal(steps?.bench?.wallUs.length, 3);
+  assert.ok([1, 1000].includes(steps?.bench?.tickUs ?? 0), "tickUs is the sampler's unit");
   assert.deepEqual(steps?.bench?.counters, { steps: [2, 2, 2] });
 
   assert.deepEqual(r.get("awaits an async body")?.bench?.counters, { steps: [1, 1] });

@@ -209,8 +209,9 @@ bench.isolated("first listing in a fresh process", ({ measure }) => {
 A bench passes when `fn` and every iteration complete; it fails like a test otherwise. The
 pretty reporter prints the minimum and median wall time, the iteration count and each counter
 (a counter that varied between iterations shows its range, `82..83`); the JSON reporter emits a
-`{"type":"bench",…}` record in place of the test record, with `iterations`, `wallUs`, `userUs`
-and `counters` inline.
+`{"type":"bench",…}` record in place of the test record, with `iterations`, `tickUs` (the
+timer's unit: 1µs, or 1000 with the `Date.now()` fallback), `wallUs`, `userUs` and `counters`
+inline.
 
 ### Baselines
 
@@ -230,8 +231,11 @@ Comparing:
 - A counter **above** its baseline fails the bench with a `BaselineError`, by however little:
   a count that legitimately grows is a deliberate `--update` in the same change.
 - A counter below its baseline, or one the baseline lacks, is reported as drift and passes.
-- Wall time fails only when the minimum exceeds `--time-factor` × the baseline's minimum **and**
-  the baseline was recorded on this machine; elsewhere time is shown, never judged.
+- Wall time fails only when the minimum exceeds `--time-factor` × the baseline's minimum by more
+  than ten ticks of the timer (10µs, or 10ms under the `Date.now()` fallback) **and** the
+  baseline was recorded on this machine; elsewhere time is shown, never judged. A minimum within
+  a few ticks of its baseline is timer noise whatever the ratio says, and a baseline of `0µs`
+  would otherwise fail on any reading at all.
 - A bench the entry lacks is `[new]`; a platform the file lacks is reported once and compared
   not at all.
 

@@ -19,6 +19,7 @@ const benchResult: TestResult = {
   kind: "bench",
   bench: {
     iterations: 3,
+    tickUs: 1,
     wallUs: [1200, 900, 1000],
     userUs: [1100, 850, 950],
     counters: { tables: [1, 1, 1], calls: [82, 83, 82], scans: [0, 0, 0] },
@@ -50,7 +51,7 @@ test("reportResult: pretty reporter notes a bench new to, or drifted from, the b
 test("reportResult: pretty reporter prints a single iteration as one time", async () => {
   const once: TestResult = {
     ...benchResult,
-    bench: { iterations: 1, wallUs: [14100], counters: { tables: [2] } },
+    bench: { iterations: 1, tickUs: 1, wallUs: [14100], counters: { tables: [2] } },
   };
   const out = await captureStdout(() => reportResult(once, "pretty"));
   assert.equal(out, "  ✓ list (14.1ms, once) tables=2\n");
